@@ -1,141 +1,91 @@
-负载均衡和反向代理的配置和优化
-==============================
+Nginx的web缓存服务
+==================
 
-##负载均衡
+##nginx的proxy_cache模块
 
-###常见方法
-      1. 用户手动选择（例如华军软件园下载时的选择）
-      2. DNS轮询方式
-            缺点：
-                  可靠性低
-                  负载分配不均匀
-                  
-      3. 四/七层负载均衡设备
-      4. 多线多地区智能DNS解析与混合负载均衡方式
+         所需软件：
+         wget http://labs.frickle.com/files/ngx_cache_purge-1.3.tar.gz
+         pcre,nginx-0.8.29.tar.gz
+         # purge模块
+         http://labs.frickle.com/nginx_ngx_cache_purge/
+          
+         安装
+         tar -zxvf ngx_cache_purge-1.0.tar.gz
+         tar -zxvf nginx-0.8.29.tar.gz
+         cd nginx-0.8.29
+         ./configure --user=www --group=www --add-module=../ngx_cache_purge-1.0 
+         --prefix=/usr/local/gp/nginx --with-http_stub_status_module 
+         --with-http_ssl_module
+         make && make install
+   
+##配置
 
-##Nginx负载均衡和反向代理实例
+         1.创建缓存目录，路径同一分区下
+           mkdir -p /data0/proxy_temp_path
+           mkdir -p /data0/proxy_cache_path
+           
+         2.proxy_temp这个目录用于存储临时文件，默认在nginx下.需要看下是否www有权限写入，
+           如果不可写，无法在这个目录生成文件的话，会导致反向代理失败。也可以在
+           nginx的配置里设置proxy_temp_path指定存储临时文件的目录。
+         3.proxy_cache_path
+           /data0/proxy_cache_path levels=1:2 keys_zone=cache_one:200m
+           inactive=1d max_size=500m;
+           levels设置目录层次 
+           keys_zone设置缓存空间名字和共享内存大小(热点内容放在内存) 
+           inactive在指定时间内没人访问则被删除在这里是1天 
+           max_size最大缓存空间
+           
+           所有active的key和元数据都保存在共享内存中-缓存区域(zone),
+           在keys_zone中定义该缓存区域的名字和大小.
 
-      worker_processes  10;
-      
-      #设置最大打开文件数的限制
-      worker_rlimit_nofile 65535;
-      
-      #error_log  x:/xxxxx/xxxx/log/error.log;
-      #error_log  logs/error.log  notice;
-      #error_log  logs/error.log  info;
-      
-      work_rlimit_nofile 51200;
-      
-      pid        logs/nginx.pid;
-      
-      #Nginx的事件模块，用于控制Nginx如何处理连接，参数会影响性能，慎重设置。
-      events {
-          user epoll;
-          worker_connections  51200;
-      }
-      
+##nginx.conf 只写关键步骤
 
-      http {
-          include       mime.types;
-          #默认文件类型
-          default_type  application/octet-stream;
-          #默认编码
-          #charset utf-8; 
-          
-          server_names_hash_bucket_size 128;
-          client_header_buffer_size 32k;
-          large_client_header_buffers 4 32k;
-          
-          sendfile on;
-          
-          keepalive_timeout 65;
-          
-          tcp_nodelay on;
-          
-          gzip  on;
-          gzip_min_length 1k;
-          gzip_buffers 4 16k;
-          gzip_http_version 1.1;
-          gzip_comp_level 2;
-          gzip_types text/plain application/xml text/css application/x-javascript;
-          gzip_vary on;
-          
-          #允许客户端请求的最大单个文件字节数
-          client_max_body_size 300m;
-          
-          #缓冲区代理缓冲用户端请求的最大字节数
-          client_body_buffer_size 128;
-          
-          #跟后端服务器连接的超时时间
-          proxy_connect_timeout 600;
-          
-          #连接成功后等待后端服务器响应时间
-          proxy_read_timeout 600;
-          
-          #后端服务器数据回传时间
-          proxy_send_timeout 600;
-          
-          #代理请求缓存区
-          proxy_buffer_size 16k;
-          
-          proxy_buffers 4 32k;
-          
-          proxy_busy_buffers_size 64k;
-          
-          proxy_temp_file_write_size 64k;
-          
-          upstream pool1{
-          ......
+          # 日志格式设置命中状态有HIT,EXPIRED
+           $upstream_cache_status
+          # 据说先写到temp再移动到cache
+          proxy_temp_path /data0/proxy_temp_path;
+          proxy_cache_path /data0/proxy_cache_path levels=1:2 keys_zone=cache_one:200m
+          inactive=10m max_size=500m;
+      
+          upstream my_server_pool {
+            server 115.79.90.78:80;
           }
           
-          upstream pool2{
-          ......
-          }
-          
-          upstream pool3{
-          ......
-          }
-          
-          #反向代理1
-          server
+              server 
           {
-          .......
-          }
-          #log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
-                            '$status $body_bytes_sent "$http_referer" '
-                            '"$http_user_agent" "$http_x_forwarded_for"';
-        }
-
-##注意点
-      * 真实ip使用 HTTP_X_FORWARDED_FOR
-
-## Upstream模块
-
-### ip_hash
-
-      设置同一ip访问相同的服务器，不推荐使用
+              listen 80;
+              server_name file.51yuncai.com;
+              location /
+              {
+               proxy_set_header Host $host;
+               proxy_set_header X-Forwarded-For $remote_addr;
+               proxy_pass http://my_server_pool;
+              }
+         ### 特别注意 下面的purge功能部分一定不要放在下面,放在最下面的话purge怎么都报404#####
+              location ~ /purge(/.*)
+               {
+                allow 127.0.0.1;
+                allow 192.168.1.0/24;
+                deny all;
+                proxy_cache_purge cache_one $host$1$is_args$args;
+               }
+          # 设置缓存的文件类型,建议在后端设置缓存时间通过expires cache-control:max-age=[ses]
       
-###server指令
-
-      * 在upstream下使用
-      * weight 权重
-      * max_fails
-      * fail_timeout
-      * down
-      * backup
+              location ~ .*\.(gif|jpg|png|bmp|swf|js|css)$
+              {
+               proxy_cache cache_one;
+               
+           # 在cache端强制设置缓存时间
+               proxy_cache_valid 200 304 12h;
+               proxy_cache_valid 301 302 1m;
+               proxy_cache_valid any 1m;
       
-###upstream指令
-
-      * 在http下使用
-      * $upstream_addr  处理请求的服务器地址
-      * $upstream_status      服务器的应答状态
-      * $upstream_response_time     服务器响应时间
-      * $upstream_http_$HEADER      任意的HTTP协议头协议
-
-##Nginx负载均衡服务器的双机可用
-
-###第一种方式
-      使用基于VRRP路由协议的keepalive的软件实现
-
-###第二种方式
-      DNS轮询
+               proxy_cache_key $host$uri$is_args$args;
+      
+               #####
+               add_header X-Cache $upstream_cache_status;
+               proxy_set_header X-Forwarded-For $remote_addr;
+               proxy_pass http://my_server_pool;
+              }
+      
+            }
