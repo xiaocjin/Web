@@ -33,10 +33,10 @@
 
 >单行,设定等值的padding-top和padding-bottom
 
->.link {
-  padding-top: 30px;
-  padding-bottom: 30px;
-}
+    >.link {
+      padding-top: 30px;
+      padding-bottom: 30px;
+    }
 
 >多行，等padding-top和padding-bottom的方式可能也行，但如果不行的话，可以转换成table（display: table-cell）布局，在该布局下对子元素使用垂直居中（vertical-align: middle）。
 
