@@ -33,7 +33,7 @@
 
 >单行,设定等值的padding-top和padding-bottom
 
-    >.link {
+    .link {
       padding-top: 30px;
       padding-bottom: 30px;
     }
